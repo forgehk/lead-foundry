@@ -1,0 +1,32 @@
+# Example ICP — wellness DTC brands.
+name: "DarkForge ICP - wellness DTC"
+
+rules:
+  - field: industry
+    contains: ["wellness", "supplements", "fitness", "health"]
+    weight: 30
+    name: "industry-match"
+
+  - field: company_size
+    between: [10, 200]
+    weight: 25
+    name: "size-fit"
+
+  - field: country
+    equals: "US"
+    weight: 15
+    name: "country-US"
+
+  - field: title
+    contains: ["founder", "ceo", "head of marketing", "ecom", "dtc"]
+    weight: 20
+    name: "decision-maker"
+
+  - field: email
+    has_valid_mx: true
+    weight: 10
+    name: "deliverable-email"
+
+verdicts:
+  hot: 70
+  warm: 40
