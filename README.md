@@ -2,7 +2,7 @@
 
 > Turn a CSV of raw lead data into a scored, deduped, outreach-ready list. Pluggable enrichment, configurable ICP scoring, no SaaS lock-in.
 
-[![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg)]() [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![CI](https://github.com/forgehk/lead-foundry/actions/workflows/ci.yml/badge.svg)](https://github.com/forgehk/lead-foundry/actions/workflows/ci.yml) [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg)]() [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
 
