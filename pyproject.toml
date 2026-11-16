@@ -19,6 +19,7 @@ classifiers = [
 ]
 dependencies = [
     "pyyaml>=6",
+    "dnspython>=2.4",
 ]
 
 [project.optional-dependencies]
