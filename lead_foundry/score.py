@@ -2,13 +2,80 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass, field as dc_field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
+import dns.exception
+import dns.resolver
 import yaml
 
 from .models import Lead, ScoredLead
+
+MXLookup = Callable[[str], "bool | None"]
+
+
+def dns_mx_lookup(domain: str, resolver: Any = None, timeout: float = 3.0) -> bool | None:
+    """Ask DNS whether ``domain`` can receive mail.
+
+    Returns True when the domain publishes a usable MX record, or has no MX
+    but does have an A/AAAA record (the implicit MX of RFC 5321 section 5.1).
+    Returns False for NXDOMAIN, for a null MX (RFC 7505: a single MX of
+    preference 0 pointing at the root) and for a domain with no MX and no
+    address. Returns None when the lookup itself failed (timeout, no
+    reachable nameserver), so callers can tell "unknown" from "no".
+    """
+    if resolver is None:
+        resolver = dns.resolver.Resolver()
+        resolver.lifetime = timeout
+    try:
+        answer = resolver.resolve(domain, "MX")
+    except dns.resolver.NXDOMAIN:
+        return False
+    except dns.resolver.NoAnswer:
+        return _has_address(resolver, domain)
+    except dns.exception.DNSException:
+        return None
+    records = list(answer)
+    if not records:
+        return _has_address(resolver, domain)
+    if len(records) == 1 and records[0].preference == 0 and str(records[0].exchange) == ".":
+        return False
+    return True
+
+
+def _has_address(resolver: Any, domain: str) -> bool | None:
+    failed = False
+    for rdtype in ("A", "AAAA"):
+        try:
+            if list(resolver.resolve(domain, rdtype)):
+                return True
+        except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
+            continue
+        except dns.exception.DNSException:
+            failed = True
+    return None if failed else False
+
+
+class MXChecker:
+    """Live MX check with a per-domain cache, so a list with 500 leads at
+    the same company costs one DNS query, not 500."""
+
+    def __init__(self, lookup: MXLookup | None = None, timeout: float = 3.0) -> None:
+        self._lookup = lookup or (lambda d: dns_mx_lookup(d, timeout=timeout))
+        self._cache: dict[str, bool | None] = {}
+
+    def has_mx(self, domain: str) -> bool | None:
+        domain = domain.strip().lower().rstrip(".")
+        if not domain:
+            return False
+        if domain not in self._cache:
+            self._cache[domain] = self._lookup(domain)
+        return self._cache[domain]
+
+
+def _email_shape_ok(email: str) -> bool:
+    return bool(email and "@" in email and "." in email.rsplit("@", 1)[1])
 
 @dataclass
 class Rule:
@@ -20,7 +87,7 @@ class Rule:
     has_valid_mx: bool | None = None
     name: str | None = None
 
-    def matches(self, lead: Lead) -> bool:
+    def matches(self, lead: Lead, mx: MXChecker | None = None) -> bool:
         val = _field_value(lead, self.field)
         if self.contains is not None:
             if val is None:
@@ -39,8 +106,13 @@ class Rule:
             lo, hi = self.between
             return lo <= num <= hi
         if self.has_valid_mx is True:
-            # we don't actually do a live MX lookup; just check email shape.
-            return bool(lead.email and "@" in lead.email and "." in lead.email.rsplit("@", 1)[1])
+            if not _email_shape_ok(lead.email):
+                return False
+            if mx is None:
+                # offline mode: the email shape is all we check.
+                return True
+            # an unknown result (lookup failed) earns no points.
+            return mx.has_mx(lead.email.rsplit("@", 1)[1]) is True
         return False
 
     @property
@@ -64,6 +136,7 @@ class ICP:
     rules: list[Rule]
     hot_threshold: int = 70
     warm_threshold: int = 40
+    mx_checker: MXChecker | None = dc_field(default=None, repr=False, compare=False)
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "ICP":
@@ -74,11 +147,15 @@ class ICP:
     def from_dict(cls, data: dict[str, Any]) -> "ICP":
         rules = [_parse_rule(r) for r in data.get("rules", [])]
         verdicts = data.get("verdicts", {}) or {}
+        mx_checker = None
+        if data.get("mx_lookup"):
+            mx_checker = MXChecker(timeout=float(data.get("mx_timeout", 3.0)))
         return cls(
             name=data.get("name", "default ICP"),
             rules=rules,
             hot_threshold=int(verdicts.get("hot", 70)),
             warm_threshold=int(verdicts.get("warm", 40)),
+            mx_checker=mx_checker,
         )
 
 def _parse_rule(data: dict[str, Any]) -> Rule:
@@ -102,7 +179,7 @@ def score_one(lead: Lead, icp: ICP) -> ScoredLead:
     total = 0
     matched: list[str] = []
     for rule in icp.rules:
-        if rule.matches(lead):
+        if rule.matches(lead, icp.mx_checker):
             total += rule.weight
             matched.append(rule.label)
     total = max(0, min(100, total))
