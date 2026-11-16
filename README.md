@@ -40,7 +40,9 @@ It's also a good "tell me about your favorite project" interview answer because 
 ## Quick start
 
 ```bash
-pip install lead-foundry
+git clone https://github.com/forgehk/lead-foundry.git
+cd lead-foundry
+pip install -e .
 
 # inspect what's in a raw file
 lead-foundry inspect raw_leads.csv
@@ -82,12 +84,19 @@ rules:
     has_valid_mx: true
     weight: 10
 
+# Off by default: `has_valid_mx` only checks the email's shape.
+# Turn this on to ask DNS whether the email's domain accepts mail.
+mx_lookup: true
+mx_timeout: 3        # seconds per domain
+
 # Score thresholds
 verdicts:
   hot: 70       # >= 70 score = HOT
   warm: 40      # >= 40 score = WARM
   cold: 0       # everything else
 ```
+
+With `mx_lookup: true` a lead earns the `has_valid_mx` points only if its email domain publishes an MX record, or has no MX but resolves to an address (the implicit MX of RFC 5321). Domains that do not exist or publish a null MX (RFC 7505) get no points, and neither does a lookup that times out. Results are cached per domain, so a list full of one company costs one query.
 
 ---
 
@@ -135,7 +144,7 @@ The default `pipeline.run` runs without an enricher — useful when you already 
 ## Roadmap
 
 - [x] Phone normalization (E.164)
-- [x] Email normalization + simple MX sanity
+- [x] Email normalization + shape check
 - [x] Domain extraction from email + website
 - [x] Dedupe by company domain
 - [x] Configurable ICP YAML
@@ -143,7 +152,7 @@ The default `pipeline.run` runs without an enricher — useful when you already 
 - [x] CSV in / CSV out
 - [x] JSON output mode
 - [ ] Apify provider plugin
-- [ ] Email deliverability check via real MX lookup
+- [x] Email deliverability check via real MX lookup (`mx_lookup: true`)
 - [ ] Asynchronous enrichment with rate-limit awareness
 - [ ] Optional LLM-based industry classification
 
